@@ -1,0 +1,243 @@
+ArrayList<InkBlob> inkBlobs;
+ArrayList<Particle> particles;
+ArrayList<Threshold> thresholds;
+int startTime;
+color[] finalColors = {color(255, 0, 0), color(0, 120, 255), color(0, 255, 0), color(255, 255, 0), color(255, 255, 255), color(255, 105, 180), color(128, 0, 128)};
+PVector center;
+boolean collided = false;
+float centerCircleSize;
+float noiseOffset = 0;
+
+void setup() {
+  size(1200, 800);
+  background(0);
+  inkBlobs = new ArrayList<InkBlob>();
+  particles = new ArrayList<Particle>();
+  thresholds = new ArrayList<Threshold>();
+  center = new PVector(width/2, height/2);
+  
+  thresholds.add(new Threshold(width/2, height/2, width*0.4, height*0.4, 1, false, false));
+  thresholds.add(new Threshold(width/2, height/2, width*0.8, height*0.8, 1, true, false));
+  
+  centerCircleSize = width * 0.3 * 0.2;
+  
+  startTime = millis();
+  
+  inkBlobs.add(new InkBlob(0, height/2, color(255, 0, 0)));
+  inkBlobs.add(new InkBlob(width, height/2, color(0, 120, 255)));
+}
+
+void draw() {
+  background(0);
+  
+  noStroke();
+  fill(255);
+  circle(center.x, center.y, centerCircleSize);
+  
+  if (millis() - startTime > 13000) {
+    reset();
+  }
+  
+  if (!collided) {
+    for (InkBlob blob : inkBlobs) {
+      blob.update();
+      blob.display();
+    }
+    checkCollision();
+  } else {
+    for (int i = particles.size() - 1; i >= 0; i--) {
+      Particle p = particles.get(i);
+      p.update();
+      p.display();
+      
+      for (int j = i - 1; j >= 0; j--) {
+        Particle other = particles.get(j);
+        p.collide(other);
+      }
+      
+      if (p.isOffscreen()) {
+        particles.remove(i);
+      }
+    }
+  }
+  
+  for (Threshold t : thresholds) {
+    t.display();
+  }
+  
+  noiseOffset += 0.02;
+}
+
+void checkCollision() {
+  if (PVector.dist(inkBlobs.get(0).position, inkBlobs.get(1).position) < 20) {
+    collided = true;
+    for (InkBlob blob : inkBlobs) {
+      blob.explode();
+    }
+  }
+}
+
+void reset() {
+  inkBlobs.clear();
+  particles.clear();
+  collided = false;
+  inkBlobs.add(new InkBlob(0, height/2, color(255, 0, 0)));
+  inkBlobs.add(new InkBlob(width, height/2, color(0, 120, 255)));
+  startTime = millis();
+}
+
+class InkBlob {
+  PVector position, velocity;
+  color col;
+  float radius;
+  
+  InkBlob(float x, float y, color c) {
+    position = new PVector(x, y);
+    velocity = PVector.sub(center, new PVector(x, y)).normalize().mult(4);
+    col = c;
+    radius = 30;
+  }
+  
+  void update() {
+    position.add(velocity);
+  }
+  
+  void display() {
+    noStroke();
+    fill(col);
+    ellipse(position.x, position.y, radius * 2, radius * 2);
+  }
+  
+  void explode() {
+    for (int i = 0; i < 100; i++) {
+      float angle = random(TWO_PI);
+      float r = random(radius);
+      float px = position.x + cos(angle) * r;
+      float py = position.y + sin(angle) * r;
+      particles.add(new Particle(px, py, col));
+    }
+  }
+}
+
+class Particle {
+  PVector position, velocity;
+  color col;
+  int currentThreshold;
+  float radius;
+  
+  Particle(float x, float y, color c) {
+    position = new PVector(x, y);
+    velocity = PVector.random2D().mult(random(2, 5));
+    col = c;
+    currentThreshold = -1;
+    radius = 3;
+  }
+  
+  void update() {
+    PVector oldPosition = position.copy();
+    position.add(velocity);
+    
+    for (int i = 0; i < thresholds.size(); i++) {
+      if (thresholds.get(i).crossedBoundary(oldPosition, position) && i > currentThreshold) {
+        changeColor(i);
+        currentThreshold = i;
+        break;
+      }
+    }
+    
+    if (PVector.dist(position, center) < PVector.dist(oldPosition, center)) {
+      velocity = PVector.sub(position, center).normalize().mult(velocity.mag());
+    }
+  }
+  
+  void changeColor(int thresholdIndex) {
+    switch(thresholdIndex) {
+      case 0:
+        col = color(0, 255, 0); // 緑色
+        break;
+      case 1:
+        col = finalColors[int(random(finalColors.length))]; // ランダムな色
+        break;
+    }
+  }
+  
+  void display() {
+    noStroke();
+    fill(col);
+    ellipse(position.x, position.y, radius * 2, radius * 2);
+  }
+  
+  boolean isOffscreen() {
+    return position.x < 0 || position.x > width || position.y < 0 || position.y > height;
+  }
+  
+  void collide(Particle other) {
+    float distance = PVector.dist(position, other.position);
+    if (distance < radius + other.radius) {
+      if (col != other.col) {
+        PVector force = PVector.sub(position, other.position);
+        force.normalize();
+        force.mult(0.5);
+        velocity.add(force);
+        other.velocity.sub(force);
+      }
+    }
+  }
+}
+
+class Threshold {
+  float x, y, w, h;
+  float thickness;
+  boolean isIrregular;
+  boolean isHandDrawn;
+  
+  Threshold(float x, float y, float w, float h, float t, boolean irregular, boolean handDrawn) {
+    this.x = x;
+    this.y = y;
+    this.w = w;
+    this.h = h;
+    this.thickness = t;
+    this.isIrregular = irregular;
+    this.isHandDrawn = handDrawn;
+  }
+  
+  void display() {
+    noFill();
+    stroke(255);
+    strokeWeight(thickness);
+    if (isIrregular) {
+      drawIrregularShape();
+    } else {
+      ellipse(x, y, w, h);
+    }
+    strokeWeight(1);
+  }
+  
+  void drawIrregularShape() {
+    beginShape();
+    for (float a = 0; a < TWO_PI; a += 0.1) {
+      float xoff = map(cos(a), -1, 1, 0, 3);
+      float yoff = map(sin(a), -1, 1, 0, 3);
+      float r = map(noise(xoff, yoff, noiseOffset), 0, 1, 0.8, 1.2);
+      float rx = w/2 * r;
+      float ry = h/2 * r;
+      float px = x + cos(a) * rx;
+      float py = y + sin(a) * ry;
+      vertex(px, py);
+    }
+    endShape(CLOSE);
+  }
+  
+  boolean crossedBoundary(PVector oldPos, PVector newPos) {
+    float oldDist = distFromCenter(oldPos);
+    float newDist = distFromCenter(newPos);
+    float radius = w / 2;
+    return (oldDist < radius && newDist >= radius) || (oldDist > radius && newDist <= radius);
+  }
+  
+  float distFromCenter(PVector pos) {
+    float dx = pos.x - x;
+    float dy = pos.y - y;
+    return sqrt((dx*dx)/(w*w/4) + (dy*dy)/(h*h/4)) * (w/2);
+  }
+}
